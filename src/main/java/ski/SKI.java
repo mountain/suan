@@ -18,35 +18,20 @@ public interface SKI {
     Detector detector = new Detector();
 
     interface Combinator {
-        double mass();
         String script();
         Context tokenize(int maxdepth);
-        void supply(Potential potential);
         Combinator eval();
-    }
-
-    class Potential {
-        double val = 0.0;
-        public Potential(double p) {
-            this.val = p;
-        }
-
-        public void use(double amount) {
-            this.val = this.val - amount;
-        }
     }
 
     class Context extends HashMap<String, Combinator> {
         int counter;
         int maxdepth;
         StringBuffer snippet;
-        Potential potential;
 
-        Context(int maxdepth, Potential potential) {
+        Context(int maxdepth) {
             this.counter = 1;
             this.snippet = new StringBuffer();
             this.maxdepth = maxdepth;
-            this.potential = potential;
         }
 
         public String script() {
@@ -87,31 +72,15 @@ public interface SKI {
             this.put(key, right);
             this.counter++;
         }
-
-        @Override
-        public Combinator get(Object key) {
-            Combinator val = super.get(key);
-            if (val instanceof CompositiveCombinator comp) {
-                comp.potential = this.potential;
-            }
-            return val;
-        }
     }
 
     class CompositiveCombinator implements Combinator {
         public final Combinator left;
         public final Combinator right;
-        public Potential potential;
-        public boolean breakup = false;
 
         CompositiveCombinator(Combinator left, Combinator right) {
             this.left = left;
             this.right = right;
-        }
-
-        @Override
-        public double mass() {
-            return left.mass() + right.mass();
         }
 
         @Override
@@ -121,7 +90,7 @@ public interface SKI {
 
         @Override
         public Context tokenize(int maxdepth) {
-            Context ctx = new Context(maxdepth, this.potential);
+            Context ctx = new Context(maxdepth);
             ctx.visitLeft(left, 1);
             ctx.visitRoot();
             ctx.visitRight(right);
@@ -129,51 +98,11 @@ public interface SKI {
         }
 
         @Override
-        public void supply(Potential potential) {
-            this.potential = potential;
-            this.left.supply(potential);
-            this.right.supply(potential);
-        }
-
-        protected Combinator check(Combinator val) {
-            String sa = this.script();
-            String sb = val.script();
-            double ma = this.mass();
-            double mb = val.mass();
-
-            //return val;
-
-            if (this.potential != null) {
-                if (ma + this.potential.val > mb) {
-                    this.potential.use(mb - ma);
-                    return val;
-                } else if (ma + this.potential.val == mb) {
-                    if (!sa.equals(sb)) {
-                        return val;
-                    }
-                }
-                if (this.breakup && this.potential.val < 0) {
-                    this.breakup = false;
-                }
-            } else {
-                if (ma > mb) {
-                    return val;
-                } else if (ma  == mb) {
-                    if (!sa.equals(sb)) {
-                        return val;
-                    }
-                }
-            }
-
-            return this;
-        }
-
-        @Override
         public Combinator eval() {
             Context ctx = this.tokenize(0);
             String script0 = ctx.script();
             return switch(script0) {
-                case "(I, $1)" -> check(ctx.get("$1"));
+                case "(I, $1)" -> ctx.get("$1");
                 default  -> {
                     ctx = this.tokenize(1);
                     String script1 = ctx.script();
@@ -182,12 +111,12 @@ public interface SKI {
                             Combinator $1 = ctx.get("$1");
                             Combinator $2 = ctx.get("$2");
                             if(detector.commit(this.script())) {
-                                yield check(cons($1.eval(), $2.eval()).eval());
+                                yield cons($1.eval(), $2.eval()).eval();
                             } else {
-                                yield check(cons($1.eval(), $2.eval()));
+                                yield cons($1.eval(), $2.eval());
                             }
                         }
-                        case "((K, $1), $2)" -> check(ctx.get("$1"));
+                        case "((K, $1), $2)" -> ctx.get("$1");
                         default -> {
                             ctx = this.tokenize(2);
                             String script2 = ctx.script();
@@ -197,15 +126,15 @@ public interface SKI {
                                     Combinator $2 = ctx.get("$2");
                                     Combinator $3 = ctx.get("$3");
                                     if(detector.commit(this.script())) {
-                                        yield check(cons(cons($1.eval(), $2.eval()).eval(), $3.eval()).eval());
+                                        yield cons(cons($1.eval(), $2.eval()).eval(), $3.eval()).eval();
                                     } else {
-                                        yield check(cons(cons($1.eval(), $2), $3));
+                                        yield cons(cons($1.eval(), $2), $3);
                                     }
                                 }
                                 case "(((K, $1), $2), $3)" -> {
                                     Combinator $1 = ctx.get("$1");
                                     Combinator $3 = ctx.get("$3");
-                                    yield check(cons($1, $3).eval());
+                                    yield cons($1, $3).eval();
                                 }
                                 case "(((S, $1), $2), $3)" -> {
                                     Combinator $1 = ctx.get("$1");
@@ -217,8 +146,7 @@ public interface SKI {
                                     } else {
                                         result = (CompositiveCombinator)cons(cons($1, $3), cons($2, $3));
                                     }
-                                    result.breakup = true;
-                                    yield check(result.eval());
+                                    yield result.eval();
                                 }
                                 case "(($1, $2), ($3, $4))" -> {
                                     Combinator $1 = ctx.get("$1");
@@ -226,8 +154,7 @@ public interface SKI {
                                     Combinator $3 = ctx.get("$3");
                                     Combinator $4 = ctx.get("$4");
                                     CompositiveCombinator result = (CompositiveCombinator)cons(cons($1, $2).eval(), cons($3, $4).eval()).eval();
-                                    result.breakup = true;
-                                    yield check(result);
+                                    yield result;
                                 }
                                 case "((($1, $2), $3), $4)" -> {
                                     Combinator $1 = ctx.get("$1").eval();
@@ -235,9 +162,9 @@ public interface SKI {
                                     Combinator $3 = ctx.get("$3");
                                     Combinator $4 = ctx.get("$4");
                                     if(detector.commit(this.script())) {
-                                        yield check(cons(cons(cons($1, $2), $3).eval(), $4).eval());
+                                        yield cons(cons(cons($1, $2), $3).eval(), $4).eval();
                                     } else {
-                                        yield check(cons(cons(cons($1, $2), $3).eval(), $4.eval()));
+                                        yield cons(cons(cons($1, $2), $3).eval(), $4.eval());
                                     }
                                 }
                                 default -> this;
@@ -257,11 +184,6 @@ public interface SKI {
         return new Combinator() {
 
             @Override
-            public double mass() {
-                return 0;
-            }
-
-            @Override
             public String script() {
                 return name;
             }
@@ -269,10 +191,6 @@ public interface SKI {
             @Override
             public Context tokenize(int maxdepth) {
                 return null;
-            }
-
-            @Override
-            public void supply(Potential potential) {
             }
 
             @Override
@@ -287,11 +205,6 @@ public interface SKI {
         return new Combinator() {
 
             @Override
-            public double mass() {
-                return 5;
-            }
-
-            @Override
             public String script() {
                 return "S";
             }
@@ -299,10 +212,6 @@ public interface SKI {
             @Override
             public Context tokenize(int maxdepth) {
                 return null;
-            }
-
-            @Override
-            public void supply(Potential potential) {
             }
 
             @Override
@@ -317,11 +226,6 @@ public interface SKI {
         return new Combinator() {
 
             @Override
-            public double mass() {
-                return 4;
-            }
-
-            @Override
             public String script() {
                 return "K";
             }
@@ -329,10 +233,6 @@ public interface SKI {
             @Override
             public Context tokenize(int maxdepth) {
                 return null;
-            }
-
-            @Override
-            public void supply(Potential potential) {
             }
 
             @Override
@@ -347,11 +247,6 @@ public interface SKI {
         return new Combinator() {
 
             @Override
-            public double mass() {
-                return 2;
-            }
-
-            @Override
             public String script() {
                 return "I";
             }
@@ -359,10 +254,6 @@ public interface SKI {
             @Override
             public Context tokenize(int maxdepth) {
                 return null;
-            }
-
-            @Override
-            public void supply(Potential potential) {
             }
 
             @Override
